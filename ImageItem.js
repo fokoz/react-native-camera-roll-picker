@@ -4,6 +4,9 @@ import {
   StyleSheet,
   Dimensions,
   TouchableOpacity,
+  View,
+  Text,
+  Platform
 } from 'react-native';
 import PropTypes from 'prop-types';
 
@@ -35,15 +38,22 @@ class ImageItem extends Component {
 
   render() {
     const {
-      item, selected, selectedMarker, imageMargin,
+      item, selected, selectedMarker, imageMargin, selectedIndex
     } = this.props;
 
-    const marker = selectedMarker || (<Image
-      style={[styles.marker, { width: 25, height: 25 }]}
-      source={checkIcon}
-    />);
+    const marker = selectedMarker || (<View
+        style={[styles.marker,
+            {justifyContent: 'center', alignItems: 'center', backgroundColor: '#00a04a', borderRadius: 10, height: 20, width: 20}]}>
+        <Text style={{color: 'white', fontSize: 12}}>{selectedIndex+1}</Text>
+        </View>);
 
     const { image } = item.node;
+
+    if (Platform.OS == 'ios') {
+      if (group_name != 'All Photos') {
+        return null;
+      }
+    }
 
     return (
       <TouchableOpacity
@@ -68,6 +78,7 @@ ImageItem.defaultProps = {
 ImageItem.propTypes = {
   item: PropTypes.object,
   selected: PropTypes.bool,
+  selectedIndex: PropTypes.number,
   selectedMarker: PropTypes.element,
   imageMargin: PropTypes.number,
   imagesPerRow: PropTypes.number,
