@@ -47,7 +47,7 @@ class ImageItem extends Component {
         <Text style={{color: 'white', fontSize: 12}}>{selectedIndex+1}</Text>
         </View>);
 
-    const { image } = item.node;
+    const { image, group_name } = item.node;
 
     if (Platform.OS == 'ios') {
       if (group_name != 'All Photos') {
