@@ -1,81 +1,307 @@
 import React, { Component } from 'react';
 import {
-  Image,
+  CameraRoll,
+  Platform,
   StyleSheet,
-  Dimensions,
-  TouchableOpacity,
   View,
-  Text
+  Text,
+  FlatList,
+  ActivityIndicator
 } from 'react-native';
 import PropTypes from 'prop-types';
+import Row from './Row';
 
-const checkIcon = require('./circle-check.png');
+import ImageItem from './ImageItem';
 
 const styles = StyleSheet.create({
-  marker: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: 'transparent',
+  wrapper: {
+    flexGrow: 1,
+  },
+  loader: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
-class ImageItem extends Component {
-  componentWillMount() {
-    let { width } = Dimensions.get('window');
-    const { imageMargin, imagesPerRow, containerWidth } = this.props;
+// helper functions
+const arrayObjectIndexOf = (array, property, value) => array.map(o => o[property]).indexOf(value);
 
-    if (typeof containerWidth !== 'undefined') {
-      width = containerWidth;
-    }
-    this.imageSize = (width - (imagesPerRow + 1) * imageMargin) / imagesPerRow;
+class CameraRollPicker extends Component {
+  constructor(props) {
+    super(props);
+
+    this.state = {
+      images: [],
+      selected: this.props.selected,
+      lastCursor: null,
+      initialLoading: true,
+      loadingMore: false,
+      noMore: false,
+      data: [],
+    };
+
+    this.renderFooterSpinner = this.renderFooterSpinner.bind(this);
+    this.onEndReached = this.onEndReached.bind(this);
+    this.renderRow = this.renderRow.bind(this);
+    this.selectImage = this.selectImage.bind(this);
+    this.renderImage = this.renderImage.bind(this);
   }
 
-  handleClick(item) {
-    this.props.onClick(item);
+  componentWillMount() {
+    this.fetch();
+  }
+
+  componentWillReceiveProps(nextProps) {
+    this.setState({
+      selected: nextProps.selected,
+    });
+  }
+
+  _nEveryRow = (data, n) => {
+    if (Platform.OS == 'ios') {
+      var items = [];
+      data.map((item)=>{
+          const {group_name} = item.node;
+          if (group_name == 'All Photos') {
+            items.push(item)
+          }
+      })
+
+      if (items.length == 0) {
+        this.doFetch();
+      }
+
+      return items;
+    }
+
+
+      return data;
+  };
+
+  onEndReached() {
+    if (!this.state.noMore) {
+      this.fetch();
+    }
+  }
+
+  appendImages(data) {
+    const assets = data.edges;
+    const newState = {
+      loadingMore: false,
+      initialLoading: false,
+    };
+
+    if (!data.page_info.has_next_page) {
+      newState.noMore = true;
+    }
+
+
+    if (assets.length > 0) {
+      newState.lastCursor = data.page_info.end_cursor;
+      newState.data  = this._nEveryRow([...this.state.data, ...assets], this.props.imagesPerRow);
+    }
+
+    this.setState(newState);
+  }
+
+  fetch() {
+    if (!this.state.loadingMore) {
+      this.setState({ loadingMore: true }, () => { this.doFetch(); });
+    }
+  }
+
+  doFetch() {
+    const { groupTypes, assetType } = this.props;
+
+    const fetchParams = {
+      first: 20000,
+      groupTypes,
+      assetType
+    };
+
+    if (Platform.OS === 'android') {
+      // not supported in android
+      delete fetchParams.groupTypes;
+    }
+
+    if (this.state.lastCursor) {
+      fetchParams.after = this.state.lastCursor;
+    }
+
+
+    CameraRoll.getPhotos(fetchParams)
+      .then(data => this.appendImages(data), e => console.log(e));
+  }
+
+  selectImage(image) {
+    const {
+      maximum, imagesPerRow, callback, selectSingleItem,
+    } = this.props;
+
+    const { selected } = this.state;
+    const index = arrayObjectIndexOf(selected, 'uri', image.uri);
+
+    if (index >= 0) {
+      selected.splice(index, 1);
+    } else {
+      if (selectSingleItem) {
+        selected.splice(0, selected.length);
+      }
+      if (selected.length < maximum) {
+        selected.push(image);
+      }
+    }
+
+    this.setState({
+      selected,
+    });
+
+    callback(selected, image);
+  }
+
+  renderImage(item) {
+    const { selected } = this.state;
+    const {
+      imageMargin,
+      selectedMarker,
+      imagesPerRow,
+      containerWidth,
+    } = this.props;
+
+    const { uri } = item.node.image;
+    const selectedIndex = arrayObjectIndexOf(selected, 'uri', uri)
+    const isSelected = (selectedIndex>= 0);
+
+    return (
+      <ImageItem
+        key={uri}
+        item={item}
+        selectedIndex={selectedIndex}
+        selected={isSelected}
+        imageMargin={imageMargin}
+        selectedMarker={selectedMarker}
+        imagesPerRow={imagesPerRow}
+        containerWidth={containerWidth}
+        onClick={this.selectImage}
+      />
+    );
+  }
+
+  renderRow(item) { // item is an array of objects
+    const isSelected = item.map((imageItem) => {
+      if (!imageItem) return false;
+      const { uri } = imageItem.node.image;
+      return arrayObjectIndexOf(this.state.selected, 'uri', uri) >= 0;
+    });
+    return (<Row
+      rowData={item}
+      isSelected={isSelected}
+      selectImage={this.selectImage}
+      imagesPerRow={this.props.imagesPerRow}
+      containerWidth={this.props.containerWidth}
+      imageMargin={this.props.imageMargin}
+      selectedMarker={this.props.selectedMarker}
+    />);
+  }
+
+  renderFooterSpinner() {
+    if (!this.state.noMore) {
+      return <ActivityIndicator style={styles.spinner} />;
+    }
+    return null;
   }
 
   render() {
     const {
-      item, selected, selectedMarker, imageMargin, selectedIndex
+      initialNumToRender,
+      imageMargin,
+      backgroundColor,
+      emptyText,
+      emptyTextStyle,
+      loader,
+      imagesPerRow
     } = this.props;
 
-    const marker = selectedMarker || (<View
-        style={[styles.marker,
-            {justifyContent: 'center', alignItems: 'center', backgroundColor: '#00a04a', borderRadius: 10, height: 20, width: 20}]}>
-        <Text style={{color: 'white', fontSize: 12}}>{selectedIndex+1}</Text>
-        </View>);
+    if (this.state.initialLoading) {
+      return (
+        <View style={[styles.loader, { backgroundColor }]}>
+          { loader || <ActivityIndicator /> }
+        </View>
+      );
+    }
 
-    const { image } = item.node;
+    const flatListOrEmptyText = this.state.data.length > 0 ? (
+      <FlatList
+        style={{ flex: 1 }}
+        ListFooterComponent={this.renderFooterSpinner}
+        initialNumToRender={initialNumToRender}
+        onEndReached={this.onEndReached}
+        renderItem={({ item }) => this.renderImage(item)}
+        keyExtractor={(item, index) => index.toString()}
+        data={this.state.data}
+        extraData={this.state.selected}
+        numColumns={imagesPerRow}
+      />
+    ) : (
+      <Text style={[{ textAlign: 'center' }, emptyTextStyle]}>{emptyText}</Text>
+    );
 
     return (
-      <TouchableOpacity
-        style={{ marginBottom: imageMargin, marginRight: imageMargin }}
-        onPress={() => this.handleClick(image)}
+      <View
+        style={[styles.wrapper, { padding: imageMargin, paddingRight: 0, backgroundColor }]}
       >
-        <Image
-          source={{ uri: image.uri }}
-          style={{ height: this.imageSize, width: this.imageSize }}
-        />
-        {(selected) ? marker : null}
-      </TouchableOpacity>
+        {flatListOrEmptyText}
+      </View>
     );
   }
 }
 
-ImageItem.defaultProps = {
-  item: {},
-  selected: false,
-};
-
-ImageItem.propTypes = {
-  item: PropTypes.object,
-  selected: PropTypes.bool,
-  selectedIndex: PropTypes.number,
-  selectedMarker: PropTypes.element,
-  imageMargin: PropTypes.number,
+CameraRollPicker.propTypes = {
+  initialNumToRender: PropTypes.number,
+  groupTypes: PropTypes.oneOf([
+    'Album',
+    'All',
+    'Event',
+    'Faces',
+    'Library',
+    'PhotoStream',
+    'SavedPhotos',
+  ]),
+  maximum: PropTypes.number,
+  assetType: PropTypes.oneOf([
+    'Photos',
+    'Videos',
+    'All',
+  ]),
+  selectSingleItem: PropTypes.bool,
   imagesPerRow: PropTypes.number,
-  onClick: PropTypes.func,
+  imageMargin: PropTypes.number,
+  containerWidth: PropTypes.number,
+  callback: PropTypes.func,
+  selected: PropTypes.array,
+  selectedMarker: PropTypes.element,
+  backgroundColor: PropTypes.string,
+  emptyText: PropTypes.string,
+  emptyTextStyle: Text.propTypes.style,
+  loader: PropTypes.node,
 };
 
-export default ImageItem;
+CameraRollPicker.defaultProps = {
+  initialNumToRender: 5,
+  groupTypes: 'SavedPhotos',
+  maximum: 15,
+  imagesPerRow: 3,
+  imageMargin: 5,
+  selectSingleItem: false,
+  assetType: 'Photos',
+  backgroundColor: 'white',
+  selected: [],
+  callback(selectedImages, currentImage) {
+    console.log(currentImage);
+    console.log(selectedImages);
+  },
+  emptyText: 'No photos.',
+};
+
+export default CameraRollPicker;
